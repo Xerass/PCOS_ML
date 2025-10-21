@@ -1,4 +1,6 @@
 ImageModel/data/
+ImageModel/cache_ultrasound/
+ImageModel/data_sanitized/
 
 __pycache__/
 *.pyc
