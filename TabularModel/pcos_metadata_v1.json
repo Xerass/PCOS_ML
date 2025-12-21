@@ -1,0 +1,130 @@
+{
+    "tables": {
+        "": {
+            "columns": {
+                "Age (yrs)": {
+                    "sdtype": "numerical"
+                },
+                "Weight (Kg)": {
+                    "sdtype": "numerical"
+                },
+                "Height(Cm)": {
+                    "sdtype": "numerical"
+                },
+                "BMI": {
+                    "sdtype": "numerical"
+                },
+                "Blood Group": {
+                    "sdtype": "categorical"
+                },
+                "Pulse rate(bpm)": {
+                    "sdtype": "numerical"
+                },
+                "RR (breaths/min)": {
+                    "sdtype": "categorical"
+                },
+                "Hb(g/dl)": {
+                    "sdtype": "numerical"
+                },
+                "Cycle(R/I)": {
+                    "sdtype": "categorical"
+                },
+                "Cycle length(days)": {
+                    "sdtype": "numerical"
+                },
+                "Marraige Status (Yrs)": {
+                    "sdtype": "numerical"
+                },
+                "Pregnant(Y/N)": {
+                    "sdtype": "categorical"
+                },
+                "No. of aborptions": {
+                    "sdtype": "categorical"
+                },
+                "I   beta-HCG(mIU/mL)": {
+                    "sdtype": "numerical"
+                },
+                "FSH(mIU/mL)": {
+                    "sdtype": "numerical"
+                },
+                "LH(mIU/mL)": {
+                    "sdtype": "numerical"
+                },
+                "FSH/LH": {
+                    "sdtype": "numerical"
+                },
+                "Hip(inch)": {
+                    "sdtype": "numerical"
+                },
+                "Waist(inch)": {
+                    "sdtype": "numerical"
+                },
+                "Waist:Hip Ratio": {
+                    "sdtype": "numerical"
+                },
+                "TSH (mIU/L)": {
+                    "sdtype": "numerical"
+                },
+                "PRL(ng/mL)": {
+                    "sdtype": "numerical"
+                },
+                "Vit D3 (ng/mL)": {
+                    "sdtype": "numerical"
+                },
+                "PRG(ng/mL)": {
+                    "sdtype": "numerical"
+                },
+                "RBS(mg/dl)": {
+                    "sdtype": "numerical"
+                },
+                "Weight gain(Y/N)": {
+                    "sdtype": "categorical"
+                },
+                "hair growth(Y/N)": {
+                    "sdtype": "categorical"
+                },
+                "Skin darkening (Y/N)": {
+                    "sdtype": "categorical"
+                },
+                "Hair loss(Y/N)": {
+                    "sdtype": "categorical"
+                },
+                "Pimples(Y/N)": {
+                    "sdtype": "categorical"
+                },
+                "Fast food (Y/N)": {
+                    "sdtype": "categorical"
+                },
+                "Reg.Exercise(Y/N)": {
+                    "sdtype": "categorical"
+                },
+                "BP _Systolic (mmHg)": {
+                    "sdtype": "categorical"
+                },
+                "BP _Diastolic (mmHg)": {
+                    "sdtype": "categorical"
+                },
+                "Follicle No. (L)": {
+                    "sdtype": "numerical"
+                },
+                "Follicle No. (R)": {
+                    "sdtype": "numerical"
+                },
+                "Avg. F size (L) (mm)": {
+                    "sdtype": "numerical"
+                },
+                "Avg. F size (R) (mm)": {
+                    "sdtype": "numerical"
+                },
+                "Endometrium (mm)": {
+                    "sdtype": "numerical"
+                },
+                "PCOS (Y/N)": {
+                    "sdtype": "categorical"
+                }
+            }
+        }
+    },
+    "relationships": [],
+    "METADATA_SPEC_VERSION": "V1"
+}
