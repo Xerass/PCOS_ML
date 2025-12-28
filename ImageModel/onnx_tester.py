@@ -1,14 +1,43 @@
 #!/usr/bin/env python3
 """Minimal hard-coded ONNX tester for PCOS image model
+    NOTE: I HAVE NO IDEA HOW THE CLIENT WILL ACTUALLY HOST THE MODELS OR HOW THEY'LL INTEGRATE THEM:
+    a good idea is to just use an API to some server to host the model code might look like this:
+    that also means you can just basically use this same python code and interact with it via API calls
+    
+    app = FastAPI()
 
-Behavior (hard-coded):
-- ONNX model: ../onnx_models/pcos_image_model.onnx (relative to this script)
-- Data dir:  ../data (relative to this script)
-- Samples:   10 random images from the data dir
-- Preprocessing: exact pipeline from `data_sanitizer.py` (trim, crop, equalize, to_gray3, contain->pad to 384), then resize to 224 and ImageNet normalize.
-- Layout: NCHW, dtype=float32
-- Output: Applies sigmoid (binary head) if model returns single logit; otherwise uses softmax for multiclass.
-- Produces console table and CSV report `onnx_test_report.csv` in the script directory.
+    # Load the model once when the server starts
+    sess = ort.InferenceSession("pcos_image_model.onnx", providers=['CPUExecutionProvider'])
+    input_name = sess.get_inputs()[0].name
+
+    @app.post("/predict")
+    async def predict(file: UploadFile = File(...)):
+        # 1. Receive the file and convert to PIL Image
+        contents = await file.read()
+        raw_img = Image.open(io.BytesIO(contents))
+        
+        # 2. Run your existing pipeline
+        sanitized = apply_sanitizer(raw_img)
+        tensor = preprocess_for_model(sanitized)
+        
+        # 3. Inference
+        batch = np.expand_dims(tensor, axis=0)
+        raw_logit = sess.run(None, {input_name: batch})[0].flatten()[0]
+        
+        # 4. Binary Logic
+        prob_infected = 1.0 - sigmoid(raw_logit)
+        prediction = "Infected" if prob_infected >= 0.5 else "Healthy"
+        
+        # 5. Return JSON (The "Usable" format for the UI)
+        return {
+            "filename": file.filename,
+            "prediction": prediction,
+            "probability": float(prob_infected),
+            "status": "success"
+        }
+
+        
+THIS IS JUST A SAMPLE SCRIPT FOR HOW TO USE THE ONNX MODEL WITH THE APPROPRIATE PREPROCESSING REQUIRED.
 
 """
 
@@ -19,8 +48,9 @@ import csv
 import numpy as np
 from PIL import Image, ImageOps
 import onnxruntime as ort
-
+import time
 import data_sanitizer as ds
+import matplotlib.pyplot as plt
 
 HERE = Path(__file__).parent.resolve()
 ONNX_PATH = HERE / 'onnx_models' / 'pcos_image_model.onnx'
@@ -39,17 +69,40 @@ OUT_CSV = HERE / 'onnx_test_report.csv'
 
 
 def list_images(root: Path):
+    start_time = time.time()
+    print(f"DEBUG: Starting file discovery in {root}...")
     exts = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff'}
-    files = [p for p in root.rglob('*') if p.suffix.lower() in exts]
+    files = []
+    # Using a more efficient rglob strategy
+    for ext in exts:
+        found = list(root.rglob(f"*{ext}"))
+        files.extend(found)
+    
+    elapsed = time.time() - start_time
+    print(f"DEBUG: Found {len(files)} total images in {elapsed:.2f} seconds.")
     return files
 
+#KEY STEP, APPLY SANITIZATION
+""""
+The pipeline performs the following operations:
+    1.  **Color Space Conversion**: Ensures the image is in RGB mode to maintain compatibility 
+        with subsequent transformations.
+    2.  **Border Removal**: Trims peripheral black borders using a threshold-based detection 
+        to isolate the primary subject.
+    3.  **Center Cropping**: Extracts the central 85% of the image to reduce peripheral 
+        noise and focus on the core features.
+    4.  **Contrast Enhancement**: Applies histogram equalization to distribute pixel 
+        intensities, improving image clarity and contrast.
+    5.  **Grayscale Conversion**: Transforms the image to a 3-channel grayscale format 
+        (preserving the RGB structure while removing color information).
+    6.  **Rescaling & Letterboxing**: Resizes the image to fit within the defined 
+        'SANITIZER_SIZE' while maintaining the original aspect ratio, then centers 
+        it on a black square background.
+"""
 
 def apply_sanitizer(img: Image.Image) -> Image.Image:
-    """Apply same pipeline as data_sanitizer for a PIL image and return processed PIL image.
-
-    Note: does not read/write disk.
-    """
-    # convert to RGB (sanitizer expects RGB input)
+    """Standardizes image through the cleaning pipeline."""
+    # Note: No print here to avoid flooding console for every image
     img = img.convert('RGB')
     img = ds.trim_black_border(img, threshold=8, margin=4)
     img = ds.center_crop_percent(img, pct=0.85)
@@ -60,177 +113,168 @@ def apply_sanitizer(img: Image.Image) -> Image.Image:
     bg.paste(img, ((SANITIZER_SIZE - img.size[0]) // 2, (SANITIZER_SIZE - img.size[1]) // 2))
     return bg
 
+r"""
+    Converts a PIL image into a normalized NumPy tensor ready for model inference.
+
+    The preprocessing pipeline includes:
+    1.  **Resizing**: Scales the image to the required 'MODEL_INPUT_SIZE' using 
+        bilinear interpolation to maintain smooth gradients.
+    2.  **Scaling**: Converts pixel values from integers [0, 255] to floating-point 
+        values in the range [0.0, 1.0].
+    3.  **Normalization**: Applies ImageNet-standard zero-centering and scaling 
+        per channel using the formula: $z = \frac{x - \mu}{\sigma}$
+    4.  **Dimension Permutation**: Transposes the array from Interleaved format 
+        (Height, Width, Channels) to Planar format (Channels, Height, Width) to 
+        match NCHW expectations.
+
+    Args:
+        img (Image.Image): The processed PIL image from the sanitizer.
+
+    Returns:
+        np.ndarray: A float32 array with shape (3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE).
+"""
 
 def preprocess_for_model(img: Image.Image) -> np.ndarray:
-    """Resize to MODEL_INPUT_SIZE, normalize with ImageNet mean/std, convert to NCHW float32."""
+    """Resizes and normalizes for model input."""
     img = img.resize((MODEL_INPUT_SIZE, MODEL_INPUT_SIZE), Image.BILINEAR)
     arr = np.asarray(img).astype(np.float32) / 255.0
-    # Apply ImageNet normalization per channel
     arr = (arr - IMAGENET_MEAN.reshape((1, 1, 3))) / IMAGENET_STD.reshape((1, 1, 3))
-    # HWC -> CHW
     arr = np.transpose(arr, (2, 0, 1)).astype(np.float32)
     return arr
 
-
 def sigmoid(x):
+    """Standard logistic function to map raw logits to [0, 1] range."""
     return 1.0 / (1.0 + np.exp(-x))
 
-
-def softmax(x, axis=1):
-    e = np.exp(x - np.max(x, axis=axis, keepdims=True))
-    return e / e.sum(axis=axis, keepdims=True)
-
-
 def run():
-    print('ONNX tester (hard-coded, relative paths)')
-    print('Script dir:', HERE)
-    print('ONNX:', ONNX_PATH)
-    print('Data :', DATA_DIR)
-
+    """
+    Main execution logic for model inference. 
+    Steps: Initialization -> Data Loading -> Preprocessing -> Inference -> Post-processing -> Reporting.
+    """
+    print(f"\n--- STARTING ONNX TESTER ---")
+    
+    # --- STEP 1: INITIALIZATION ---
+    # To use this model in any language:
+    # 1. Load the ONNX file into your chosen Inference Engine (ONNX Runtime, TensorRT, etc.)
+    # 2. Identify the input node name (usually the first input of the graph).
     if not ONNX_PATH.is_file():
-        raise FileNotFoundError(f'ONNX model not found at {ONNX_PATH}')
-    if not DATA_DIR.is_dir():
-        raise FileNotFoundError(f'Data dir not found at {DATA_DIR}')
+        print(f"ERROR: Model not found at {ONNX_PATH}")
+        return
 
-    imgs = list_images(DATA_DIR)
-    if not imgs:
-        raise RuntimeError('No images found in data dir')
-
-    # make sampling reproducible for demo runs
+    all_imgs = list_images(DATA_DIR)
+    if not all_imgs:
+        print("ERROR: No images found.")
+        return
+    
     random.seed(42)
-    sample = random.sample(imgs, min(SAMPLE_COUNT, len(imgs)))
-    print('Sampling', len(sample), 'images')
+    sample = random.sample(all_imgs, min(SAMPLE_COUNT, len(all_imgs)))
 
-    # load, sanitize, preprocess
-    preprocessed = []
-    meta = []  # tuples: (path, parent_folder, orig_size)
-    for p in sample:
-        try:
-            im = Image.open(p)
-            im.load()
-        except Exception as e:
-            print('Skip unreadable:', p, e)
-            continue
-
-        san = apply_sanitizer(im)
-        arr = preprocess_for_model(san)
-        preprocessed.append(arr)
-        meta.append((str(p), p.parent.name.lower(), im.size))
-
-    if not preprocessed:
-        raise RuntimeError('No valid images after preprocessing')
-
-    batch = np.stack(preprocessed, axis=0)  # shape (N, C, H, W)
-
-    # create session and run
+    print("DEBUG: Loading ONNX Session...")
     sess = ort.InferenceSession(str(ONNX_PATH), providers=['CPUExecutionProvider'])
     input_name = sess.get_inputs()[0].name
-    out = sess.run(None, {input_name: batch})
-    out_arr = np.asarray(out[0])
 
-    # Determine class folder order so we know which index corresponds to 'infected'
-    class_dirs = sorted([p.name.lower() for p in DATA_DIR.iterdir() if p.is_dir()])
-    infected_index = class_dirs.index('infected') if 'infected' in class_dirs else None
-    if infected_index is None:
-        print('Warning: could not find an "infected" folder under data; defaulting to assume infected=index 0')
-
-    # Interpret outputs: single-logit -> sigmoid; multiclass -> softmax
-    N = batch.shape[0]
+    # --- STEP 2: INFERENCE LOOP ---
     results = []
-    if out_arr.ndim == 1 and out_arr.shape[0] == N:
-        # shape (N,) raw logits for class index 1 (training used ImageFolder labels; sigmoid(logit) ~= P(label==1))
-        raw = out_arr.reshape(-1)
-        prob_class1 = sigmoid(raw)
-        # Convert to probability for 'infected' (positive) depending on folder order used during training
-        if infected_index is None or infected_index == 0:
-            # if infected is index 0, model's sigmoid gives P(class==1) i.e. P(noninfected)
-            prob_pos = 1.0 - prob_class1
-        else:
-            # infected is index 1, sigmoid already gives P(infected)
-            prob_pos = prob_class1
-        preds = (prob_pos >= 0.5).astype(int)
-        for i in range(N):
-            results.append((float(raw[i]), float(prob_pos[i]), int(preds[i])))
-    elif out_arr.ndim == 2 and out_arr.shape[0] == N and out_arr.shape[1] == 1:
-        raw = out_arr[:, 0]
-        prob_class1 = sigmoid(raw)
-        if infected_index is None or infected_index == 0:
-            prob_pos = 1.0 - prob_class1
-        else:
-            prob_pos = prob_class1
-        preds = (prob_pos >= 0.5).astype(int)
-        for i in range(N):
-            results.append((float(raw[i]), float(prob_pos[i]), int(preds[i])))
-    else:
-        # multiclass: pick argmax probability
-        if out_arr.ndim == 1:
-            out2 = out_arr.reshape(N, -1)
-        else:
-            out2 = out_arr.reshape(N, -1)
-        probs_all = softmax(out2, axis=1)
-        preds = np.argmax(probs_all, axis=1)
-        probs = probs_all[np.arange(N), preds]
-        raw = out2[np.arange(N), preds]
-        # For multiclass, decide which class index corresponds to 'infected' and map prediction to infected/not
-        for i in range(N):
-            pred_class = int(preds[i])
-            prob_pred_class = float(probs[i])
-            # If the predicted class equals the infected index, mark as infected
-            pred_infected = 1 if (infected_index is not None and pred_class == infected_index) else 0
-            results.append((float(raw[i]), float(prob_pred_class) if pred_infected else float(1.0 - prob_pred_class), int(pred_infected)))
+    plot_data = [] 
+    
+    print(f"DEBUG: Processing {len(sample)} images...")
+    for i, p in enumerate(sample):
+        try:
+            # A. IMAGE ACQUISITION
+            # you can use any method desired by client to load image
+            # Load the raw image data into memory.
+            raw_img = Image.open(p)
+            
+            # B. SANITIZATION (The Cleaning Pipeline)
+            # This step removes noise, standardizes borders, and equalizes contrast.
+            # This must be replicated exactly in other languages to maintain accuracy.
+            sanitized_img = apply_sanitizer(raw_img)
 
-    # Build report rows and compute simple metrics (assume folder name contains 'infect' for positive)
-    rows = []
-    y_true = []
-    y_pred = []
-    for i, ((path, folder, size), (raw, prob, pred)) in enumerate(zip(meta, results)):
-        # Robust label extraction:
-        # - if folder explicitly contains a negative marker like 'non' treat as negative
-        # - if folder explicitly equals or contains 'infect' and does NOT contain a 'non' marker, treat as positive
-        # - else mark as unknown (None) and skip from metric computation
-        f = folder.lower()
-        if ('non' in f) and ('infect' in f):
-            true = 0
-        elif 'non' in f:
-            true = 0
-        elif 'infect' in f and ('non' not in f):
-            true = 1
-        else:
-            true = None
-        rows.append({'file': path, 'folder': folder, 'true': true, 'pred': pred, 'prob': prob, 'raw': raw, 'size': size})
-        y_true.append(true)
-        y_pred.append(pred)
+            # C. PREPROCESSING (The Tensor Pipeline)
+            # 1. Resize: Use Bilinear interpolation to 224x224.
+            # 2. Scale: Divide pixel values (0-255) by 255.0 to get 0.0-1.0 range.
+            # 3. Normalize: Apply ImageNet Mean [0.485, 0.456, 0.406] and Std [0.229, 0.224, 0.225].
+            # 4. Format: Reorder dimensions from HWC (Height, Width, Channels) to CHW (Channels, Height, Width).
+            tensor = preprocess_for_model(sanitized_img)
+            
+            # D. EXECUTION
+            # Wrap the tensor in a batch dimension (N, C, H, W) where N=1.
+            # Pass to the engine and retrieve the raw output (logit).
+            batch = np.expand_dims(tensor, axis=0)
+            raw_logit = sess.run(None, {input_name: batch})[0].flatten()[0]
+            
+            # E. ACTIVATION & INTERPRETATION
+            # 1. Map the logit to a 0.0-1.0 scale using the Sigmoid function.
+            # 2. LABEL LOGIC: The training process mapped alphabetical order: 
+            #    'Infected' = Index 0, 'Non-Infected' = Index 1.
+            #    Therefore, the sigmoid result naturally represents P(Non-Infected).
+            #    To get P(Infected), we must calculate: 1.0 - P(Non-Infected).
+            prob_raw = sigmoid(raw_logit)
+            prob_infected = 1.0 - prob_raw 
+            
+            # F. THRESHOLDING
+            # Standard binary decision boundary is 0.5.
+            pred = 1 if prob_infected >= 0.5 else 0
+            
 
-    # Write CSV
-    with open(OUT_CSV, 'w', newline='', encoding='utf8') as f:
-        writer = csv.DictWriter(f, fieldnames=['file', 'folder', 'true', 'pred', 'prob', 'raw', 'size'])
-        writer.writeheader()
-        for r in rows:
-            writer.writerow(r)
+            #------------------------------------------------------------------#
+            #Code above this is the only ones essential for the actual prediction, if according to client we want the prob, just return prob_infected
+            #everything below is just for reporting and visualization
+            #------------------------------------------------------------------#
 
-    # Console table
-    print('\nTest report (first {} samples)'.format(len(rows)))
-    print(f"{"file":40} {"folder":12} {"true":4} {"pred":4} {"prob":6} {"raw":10} {"size"}")
-    print('-' * 100)
-    for r in rows:
-        print(f"{Path(r['file']).name:40} {r['folder']:12} {r['true']:4} {r['pred']:4} {r['prob']:6.3f} {r['raw']:10.4f} {r['size']}")
 
-    # Simple binary metrics (only if true labels are known)
-    known_idx = [i for i, t in enumerate(y_true) if t is not None]
-    if known_idx:
-        y_true_arr = np.array([y_true[i] for i in known_idx])
-        y_pred_arr = np.array([y_pred[i] for i in known_idx])
-        acc = (y_true_arr == y_pred_arr).mean()
-        tp = int(((y_true_arr == 1) & (y_pred_arr == 1)).sum())
-        tn = int(((y_true_arr == 0) & (y_pred_arr == 0)).sum())
-        fp = int(((y_true_arr == 0) & (y_pred_arr == 1)).sum())
-        fn = int(((y_true_arr == 1) & (y_pred_arr == 0)).sum())
-        print('\nSummary metrics (only samples with inferred true labels):')
-        print(f'  Known samples: {len(known_idx)} / {len(rows)}  Accuracy: {acc:.3f}  TP={tp} FP={fp} TN={tn} FN={fn}')
-    else:
-        print('\nNo reliable true labels could be inferred from folder names; skipping metrics.')
-    print('\nCSV report written to:', OUT_CSV)
 
+            # --- STEP 3: DATA COLLECTION ---
+            folder = p.parent.name.lower()
+            true_label = 1 if 'infect' in folder and 'non' not in folder else 0
+            
+            res_entry = {
+                'file': p.name,
+                'true': true_label,
+                'pred': pred,
+                'prob': prob_infected,
+                'correct': (true_label == pred)
+            }
+            results.append(res_entry)
+            plot_data.append((sanitized_img, res_entry))
+            
+            print(f" [{i+1}/{len(sample)}] {p.name:<25} | Correct: {res_entry['correct']}")
+            
+        except Exception as e:
+            print(f" [!] Error on {p.name}: {e}")
+
+    # --- STEP 4: OUTPUT GENERATION ---
+    correct_count = sum(1 for r in results if r['correct'])
+    accuracy = (correct_count / len(results)) * 100 if results else 0
+    print(f"\nFinal Accuracy: {accuracy:.2f}% ({correct_count}/{len(results)})")
+
+    # Visual Plotting
+    cols = 5
+    rows = (len(plot_data) + cols - 1) // cols
+    fig, axes = plt.subplots(rows, cols, figsize=(15, rows * 4))
+    axes = axes.flatten()
+
+    for idx, (img, res) in enumerate(plot_data):
+        axes[idx].imshow(img)
+        title_color = 'green' if res['correct'] else 'red'
+        title_text = f"File: {res['file'][:15]}...\nTrue: {res['true']} | Pred: {res['pred']}\nProb: {res['prob']:.3f}"
+        axes[idx].set_title(title_text, color=title_color, fontsize=9)
+        axes[idx].axis('off')
+
+    for j in range(idx + 1, len(axes)):
+        axes[j].axis('off')
+
+    plt.tight_layout()
+    
+    # Save results to disk
+    with open(OUT_CSV, 'w', newline='') as f:
+        if results:
+            writer = csv.DictWriter(f, fieldnames=results[0].keys())
+            writer.writeheader()
+            writer.writerows(results)
+    
+    print(f"DEBUG: Report saved to {OUT_CSV}")
+    plt.show()
 
 if __name__ == '__main__':
     run()

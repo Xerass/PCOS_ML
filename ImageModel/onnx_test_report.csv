@@ -1,11 +1,11 @@
-file,folder,true,pred,prob,raw,size
-C:\Users\Jomar\VSCode\ML\BasicML\PCOS\ImageModel\data\noninfected\Image_SetA716.jpg,noninfected,0,0,1.1920928955078125e-06,13.600765228271484,"(984, 848)"
-C:\Users\Jomar\VSCode\ML\BasicML\PCOS\ImageModel\data\infected\image11919.jpg,infected,1,1,1.0,-33.26434326171875,"(300, 300)"
-C:\Users\Jomar\VSCode\ML\BasicML\PCOS\ImageModel\data\infected\image10409.jpg,infected,1,1,1.0,-41.55642318725586,"(300, 300)"
-C:\Users\Jomar\VSCode\ML\BasicML\PCOS\ImageModel\data\infected\Image_Rotate_Rotate_Right_171.jpg,infected,1,1,1.0,-23.480195999145508,"(216, 233)"
-C:\Users\Jomar\VSCode\ML\BasicML\PCOS\ImageModel\data\infected\Image_Rotate_077.jpg,infected,1,1,1.0,-19.500839233398438,"(259, 280)"
-C:\Users\Jomar\VSCode\ML\BasicML\PCOS\ImageModel\data\infected\Image_resize_122.jpg,infected,1,1,1.0,-32.97897720336914,"(171, 171)"
-C:\Users\Jomar\VSCode\ML\BasicML\PCOS\ImageModel\data\infected\image12848.jpg,infected,1,1,0.9777779579162598,-3.7841975688934326,"(238, 267)"
-C:\Users\Jomar\VSCode\ML\BasicML\PCOS\ImageModel\data\infected\image11737.jpg,infected,1,1,1.0,-40.14086151123047,"(300, 279)"
-C:\Users\Jomar\VSCode\ML\BasicML\PCOS\ImageModel\data\noninfected\Image_SetB303.jpg,noninfected,0,0,0.0007599592208862305,7.181522846221924,"(984, 848)"
-C:\Users\Jomar\VSCode\ML\BasicML\PCOS\ImageModel\data\noninfected\Image_resize_671  (395).jpg,noninfected,0,0,0.0,18.400747299194336,"(436, 630)"
+file,true,pred,prob,correct
+Image_SetA716.jpg,0,0,1.1920929e-06,True
+image11919.jpg,1,1,1.0,True
+image10409.jpg,1,1,1.0,True
+Image_Rotate_Rotate_Right_171.jpg,1,1,1.0,True
+Image_Rotate_077.jpg,1,1,1.0,True
+Image_resize_122.jpg,1,1,1.0,True
+image12848.jpg,1,1,0.97777796,True
+image11737.jpg,1,1,1.0,True
+Image_SetB303.jpg,0,0,0.0007599592,True
+Image_resize_671  (395).jpg,0,0,0.0,True
