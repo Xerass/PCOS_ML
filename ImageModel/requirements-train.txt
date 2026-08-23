@@ -1,0 +1,18 @@
+# Training / evaluation environment for image_model.ipynb ONLY.
+# The DEPLOYMENT contract stays in requirements.txt (onnxruntime, Pillow, numpy) — do not
+# merge these in. On Kaggle most of these are preinstalled; the notebook's first cell
+# pip-installs whatever is missing.
+torch
+torchvision
+timm
+scikit-learn
+imagehash
+grad-cam
+onnx
+onnxscript
+onnxruntime
+pillow
+numpy
+pandas
+matplotlib
+tqdm
