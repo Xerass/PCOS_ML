@@ -1,6 +1,7 @@
 ImageModel/data/
 ImageModel/cache_ultrasound/
 ImageModel/data_sanitized/
+ImageModel/srmch_holdout/
 
 __pycache__/
 *.pyc
