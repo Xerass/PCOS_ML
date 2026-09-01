@@ -55,6 +55,7 @@ import matplotlib.pyplot as plt
 HERE = Path(__file__).parent.resolve()
 ONNX_PATH = HERE / 'onnx_models' / 'pcos_image_model.onnx'
 DATA_DIR = HERE / 'data'
+SITE_ADJUSTOR_PATH = HERE / 'site_adjustor.son' #produced by trainer notebook, optional so i left it out
 SAMPLE_COUNT = 10
 
 # sanitizer provides IMG_SIZE=384; training pipeline used IMG_SIZE->resize 224 at train time
@@ -145,6 +146,31 @@ def preprocess_for_model(img: Image.Image) -> np.ndarray:
 def sigmoid(x):
     """Standard logistic function to map raw logits to [0, 1] range."""
     return 1.0 / (1.0 + np.exp(-x))
+
+#optional site adjustor for per-site calibration, provided by the trainer notebook (again not necessary for now)
+def load_site_adjustor():
+    """Return (a, b, threshold) from site_adjustor.json, or None to use the plain 0.5 rule."""
+    if SITE_ADJUSTOR_PATH.is_file():
+        d = json.loads(SITE_ADJUSTOR_PATH.read_text())
+        print(f"DEBUG: Using site adjustor a={d['a']:.3f} b={d['b']:.3f} thr={d['threshold']:.3f}")
+        return float(d['a']), float(d['b']), float(d['threshold'])
+    return None
+
+
+def decide(raw_logit, adjustor=None):
+    """Map a raw logit to (prob_infected, prediction, threshold_used)."""
+    prob_infected = 1.0 - sigmoid(raw_logit)            # sigmoid(logit) = P(noninfected)
+    if adjustor is not None:
+        a, b, thr = adjustor
+        L = np.log(np.clip(prob_infected, 1e-6, 1 - 1e-6) /
+                   np.clip(1.0 - prob_infected, 1e-6, 1 - 1e-6))
+        prob_infected = float(sigmoid(a * L + b))       # per-site Platt/temperature recalibration
+        threshold = thr
+    else:
+        threshold = 0.5
+    pred = 1 if prob_infected >= threshold else 0
+    return float(prob_infected), pred, float(threshold)
+
 
 def run():
     """
